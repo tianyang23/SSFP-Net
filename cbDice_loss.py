@@ -7,14 +7,12 @@ class SoftcbDiceLoss(torch.nn.Module):
     def __init__(self, iter_=10, smooth=1.):
         super(SoftcbDiceLoss, self).__init__()
         self.smooth = smooth
-        self.iter_ = iter_  # 将 iter_ 保存为实例变量
-
+        self.iter_ = iter_  
         # Morphological skeletonization: https://github.com/jocpae/clDice/tree/master/cldice_loss/pytorch
         # self.m_skeletonize = SoftSkeletonize(num_iter=iter_)
-        self.m_skeletonize = soft_skel  # 将 m_skeletonize 定义为 soft_skel 函数本身
-
+        self.m_skeletonize = soft_skel 
     def forward(self, y_pred, y_true):
-        # 确定维度类型
+     
         if len(y_true.shape) == 4:
             dim = 2
         elif len(y_true.shape) == 5:
@@ -22,39 +20,38 @@ class SoftcbDiceLoss(torch.nn.Module):
         else:
             raise ValueError("y_true should be 4D or 5D tensor.")
 
-        # 计算前景的二值化预测
-        # print("y_pred shape before max:", y_pred.shape)  # 打印 y_pred 的形状
+    
+        # print("y_pred shape before max:", y_pred.shape) 
 
-        # 使用 sigmoid 来处理单通道前景的概率
-        y_pred_prob = torch.sigmoid(y_pred)  # 假设只有前景概率
-        y_pred_binary = torch.cat([1 - y_pred_prob, y_pred_prob], dim=1)  # 将前景和背景合并
+        y_pred_prob = torch.sigmoid(y_pred) 
+        y_pred_binary = torch.cat([1 - y_pred_prob, y_pred_prob], dim=1) 
 
-        # print("y_pred_binary shape:", y_pred_binary.shape)  # 打印新的二值化后的 y_pred
+        # print("y_pred_binary shape:", y_pred_binary.shape)  
         y_prob_binary = torch.softmax(y_pred_binary, 1)
-        y_pred_prob = y_prob_binary[:, 1]  # 前景的预测概率图
+        y_pred_prob = y_prob_binary[:, 1] 
 
         with torch.no_grad():
-            # Ground truth处理
-            y_true = torch.where(y_true > 0, 1, 0).squeeze(1).float()  # 将背景设为0，前景设为1
-            y_pred_hard = (y_pred_prob > 0.5).float()  # 二值化预测结果
+            # Ground truth
+            y_true = torch.where(y_true > 0, 1, 0).squeeze(1).float() 
+            y_pred_hard = (y_pred_prob > 0.5).float()  
             
-            skel_pred_hard = self.m_skeletonize(y_pred_hard.unsqueeze(1), iter_=self.iter_).squeeze(1)  # 传递 iter_ 参数
+            skel_pred_hard = self.m_skeletonize(y_pred_hard.unsqueeze(1), iter_=self.iter_).squeeze(1)  
             skel_true = self.m_skeletonize(y_true.unsqueeze(1), iter_=self.iter_).squeeze(1)
 
-        # 计算骨架的预测概率
+
         skel_pred_prob = skel_pred_hard * y_pred_prob
 
-        # 获取权重
+ 
         q_vl, q_slvl, q_sl = get_weights(y_true, skel_true, dim, prob_flag=False)
         q_vp, q_spvp, q_sp = get_weights(y_pred_prob, skel_pred_prob, dim, prob_flag=True)
 
-        # 计算准确度和召回率的加权指标
+     
         w_tprec = (torch.sum(torch.multiply(q_sp, q_vl)) + self.smooth) / (
                     torch.sum(combine_tensors(q_spvp, q_slvl, q_sp)) + self.smooth)
         w_tsens = (torch.sum(torch.multiply(q_sl, q_vp)) + self.smooth) / (
                     torch.sum(combine_tensors(q_slvl, q_spvp, q_sl)) + self.smooth)
 
-        # 计算cb_dice_loss
+
         cb_dice_loss = 1. - 2.0 * (w_tprec * w_tsens) / (w_tprec + w_tsens)
 
         return cb_dice_loss
